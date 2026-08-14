@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { GymUser, Prisma, User } from '@prisma/client';
+import { Gender, GymUser, Prisma, User } from '@prisma/client';
+import { patchField } from 'src/common/utils/patch.util';
 import { toE164 } from 'src/common/utils/phone.util';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -56,34 +57,26 @@ export class UsersService {
   ): Promise<MyProfile> {
     await this.findMe(userId, gymId);
 
+    // undefined leaves a column alone, null clears it - see patch.util.
     const userData: Prisma.UserUpdateInput = {
-      ...(dto.fullName !== undefined && { fullName: dto.fullName }),
-      ...(dto.email !== undefined && {
-        email: dto.email.toLowerCase(),
-        emailVerified: false,
-      }),
-      ...(dto.gender !== undefined && { gender: dto.gender }),
-      ...(dto.dateOfBirth !== undefined && {
-        dateOfBirth: new Date(dto.dateOfBirth),
-      }),
-      ...(dto.heightCm !== undefined && { heightCm: dto.heightCm }),
-      ...(dto.weightKg !== undefined && { weightKg: dto.weightKg }),
-      ...(dto.city !== undefined && { city: dto.city }),
-      ...(dto.avatarUrl !== undefined && { avatarUrl: dto.avatarUrl }),
+      fullName: patchField(dto.fullName, (v) => v.trim()),
+      email: patchField(dto.email, (v) => v.toLowerCase()),
+      emailVerified: dto.email === undefined ? undefined : false,
+      // gender is not nullable in the database; UNDISCLOSED is its "cleared".
+      gender: dto.gender === null ? Gender.UNDISCLOSED : dto.gender,
+      dateOfBirth: patchField(dto.dateOfBirth, (v) => new Date(v)),
+      heightCm: dto.heightCm,
+      weightKg: dto.weightKg,
+      city: dto.city,
+      avatarUrl: dto.avatarUrl,
     };
 
     const gymUserData: Prisma.GymUserUpdateInput = {
-      ...(dto.goal !== undefined && { goal: dto.goal }),
-      ...(dto.activityLevel !== undefined && {
-        activityLevel: dto.activityLevel,
-      }),
-      ...(dto.medicalNotes !== undefined && { medicalNotes: dto.medicalNotes }),
-      ...(dto.emergencyContactName !== undefined && {
-        emergencyContactName: dto.emergencyContactName,
-      }),
-      ...(dto.emergencyContactPhone !== undefined && {
-        emergencyContactPhone: toE164(dto.emergencyContactPhone),
-      }),
+      goal: dto.goal,
+      activityLevel: dto.activityLevel,
+      medicalNotes: dto.medicalNotes,
+      emergencyContactName: dto.emergencyContactName,
+      emergencyContactPhone: patchField(dto.emergencyContactPhone, toE164),
     };
 
     const [user, gymUser] = await this.prisma.$transaction([

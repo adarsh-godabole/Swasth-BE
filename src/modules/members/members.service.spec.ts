@@ -1,5 +1,11 @@
 import { ConflictException } from '@nestjs/common';
-import { GymRole, GymUserStatus, MemberSource, Prisma } from '@prisma/client';
+import {
+  Gender,
+  GymRole,
+  GymUserStatus,
+  MemberSource,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { TokensService } from '../auth/tokens.service';
 import { CreateMemberDto } from './dto/create-member.dto';
@@ -22,6 +28,8 @@ function buildService(overrides: {
   txUserCreate?: jest.Mock;
   gymUpdate?: jest.Mock;
   gymUserUpdate?: jest.Mock;
+  gymUserFindFirst?: jest.Mock;
+  userUpdate?: jest.Mock;
 }) {
   const tx = {
     user: {
@@ -37,9 +45,21 @@ function buildService(overrides: {
   };
 
   const prisma = {
-    user: { findUnique: overrides.findUnique ?? jest.fn() },
-    gymUser: { update: overrides.gymUserUpdate ?? jest.fn() },
-    $transaction: jest.fn((cb: (client: typeof tx) => unknown) => cb(tx)),
+    user: {
+      findUnique: overrides.findUnique ?? jest.fn(),
+      update: overrides.userUpdate ?? jest.fn(),
+    },
+    gymUser: {
+      update: overrides.gymUserUpdate ?? jest.fn(),
+      findFirst: overrides.gymUserFindFirst ?? jest.fn(),
+    },
+    // Callback form runs the callback; array form (used by update) resolves the
+    // promises it was handed.
+    $transaction: jest.fn((arg: unknown) =>
+      typeof arg === 'function'
+        ? (arg as (client: typeof tx) => unknown)(tx)
+        : Promise.all(arg as unknown[]),
+    ),
   } as unknown as PrismaService;
 
   const tokens = { revokeAllForUser: jest.fn() } as unknown as TokensService;
@@ -203,5 +223,75 @@ describe('MembersService.create', () => {
     // No new code is minted for someone rejoining.
     expect(tx.gym.update).not.toHaveBeenCalled();
     expect(result.memberCode).toBe('SWK-0001');
+  });
+});
+
+describe('MembersService.update', () => {
+  /// PATCH contract: a field left out is untouched, a field sent as null is
+  /// cleared. These four used to 500 or silently corrupt the row, because
+  /// @IsOptional() lets null past the DTO and the transforms assumed a string.
+  function buildForUpdate() {
+    const userUpdate = jest.fn().mockResolvedValue({});
+    const gymUserUpdate = jest.fn().mockResolvedValue(gymUserRow());
+    const { service } = buildService({
+      gymUserFindFirst: jest.fn().mockResolvedValue(gymUserRow()),
+      userUpdate,
+      gymUserUpdate,
+    });
+    return { service, userUpdate, gymUserUpdate };
+  }
+
+  const userDataOf = (mock: jest.Mock) => mock.mock.calls[0][0].data;
+
+  it('clears email, gender, dateOfBirth and emergency phone when sent null', async () => {
+    const { service, userUpdate, gymUserUpdate } = buildForUpdate();
+
+    await service.update(GYM_ID, 'gym-user-id', {
+      email: null,
+      gender: null,
+      dateOfBirth: null,
+      emergencyContactPhone: null,
+    });
+
+    const userData = userDataOf(userUpdate);
+    expect(userData.email).toBeNull();
+    // gender is not nullable in the database - UNDISCLOSED is its cleared state.
+    expect(userData.gender).toBe(Gender.UNDISCLOSED);
+    // Must be null, not the Unix epoch that new Date(null) produces.
+    expect(userData.dateOfBirth).toBeNull();
+    expect(userData.emailVerified).toBe(false);
+    expect(userDataOf(gymUserUpdate).emergencyContactPhone).toBeNull();
+  });
+
+  it('leaves omitted fields untouched', async () => {
+    const { service, userUpdate, gymUserUpdate } = buildForUpdate();
+
+    await service.update(GYM_ID, 'gym-user-id', { fullName: 'Rohit S' });
+
+    const userData = userDataOf(userUpdate);
+    expect(userData.fullName).toBe('Rohit S');
+    // Prisma reads undefined as "don't touch this column".
+    expect(userData.email).toBeUndefined();
+    expect(userData.gender).toBeUndefined();
+    expect(userData.dateOfBirth).toBeUndefined();
+    expect(userData.emailVerified).toBeUndefined();
+    expect(userDataOf(gymUserUpdate).goal).toBeUndefined();
+  });
+
+  it('still transforms real values', async () => {
+    const { service, userUpdate, gymUserUpdate } = buildForUpdate();
+
+    await service.update(GYM_ID, 'gym-user-id', {
+      email: 'ROHIT@Example.COM',
+      dateOfBirth: '1995-04-17',
+      emergencyContactPhone: '9812345678',
+    });
+
+    const userData = userDataOf(userUpdate);
+    expect(userData.email).toBe('rohit@example.com');
+    expect(userData.dateOfBirth).toEqual(new Date('1995-04-17'));
+    expect(userDataOf(gymUserUpdate).emergencyContactPhone).toBe(
+      '+919812345678',
+    );
   });
 });

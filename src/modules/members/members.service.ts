@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  Gender,
   GymRole,
   GymUser,
   GymUserStatus,
@@ -13,6 +14,7 @@ import {
   Prisma,
   User,
 } from '@prisma/client';
+import { patchField } from 'src/common/utils/patch.util';
 import { toE164 } from 'src/common/utils/phone.util';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { TokensService } from '../auth/tokens.service';
@@ -114,7 +116,9 @@ export class MembersService {
               phone,
               fullName: dto.fullName.trim(),
               email: dto.email?.toLowerCase(),
-              gender: dto.gender,
+              // A null would violate the non-nullable column; let the default
+              // (UNDISCLOSED) apply instead.
+              gender: dto.gender ?? undefined,
               dateOfBirth: dto.dateOfBirth
                 ? new Date(dto.dateOfBirth)
                 : undefined,
@@ -224,33 +228,27 @@ export class MembersService {
   ): Promise<MemberView> {
     const member = await this.getMemberOrThrow(gymId, memberId);
 
+    // undefined leaves a column alone, null clears it. Prisma ignores undefined
+    // values, so every field can be assigned unconditionally.
     const userData: Prisma.UserUpdateInput = {
-      ...(dto.fullName !== undefined && { fullName: dto.fullName.trim() }),
-      ...(dto.email !== undefined && {
-        email: dto.email.toLowerCase(),
-        emailVerified: false,
-      }),
-      ...(dto.gender !== undefined && { gender: dto.gender }),
-      ...(dto.dateOfBirth !== undefined && {
-        dateOfBirth: new Date(dto.dateOfBirth),
-      }),
-      ...(dto.heightCm !== undefined && { heightCm: dto.heightCm }),
-      ...(dto.weightKg !== undefined && { weightKg: dto.weightKg }),
+      fullName: patchField(dto.fullName, (v) => v.trim()),
+      email: patchField(dto.email, (v) => v.toLowerCase()),
+      // Re-verification is needed whether the address changed or was removed.
+      emailVerified: dto.email === undefined ? undefined : false,
+      // gender is not nullable in the database; UNDISCLOSED is its "cleared".
+      gender: dto.gender === null ? Gender.UNDISCLOSED : dto.gender,
+      dateOfBirth: patchField(dto.dateOfBirth, (v) => new Date(v)),
+      heightCm: dto.heightCm,
+      weightKg: dto.weightKg,
     };
 
     const gymUserData: Prisma.GymUserUpdateInput = {
-      ...(dto.goal !== undefined && { goal: dto.goal }),
-      ...(dto.activityLevel !== undefined && {
-        activityLevel: dto.activityLevel,
-      }),
-      ...(dto.medicalNotes !== undefined && { medicalNotes: dto.medicalNotes }),
-      ...(dto.notes !== undefined && { notes: dto.notes }),
-      ...(dto.emergencyContactName !== undefined && {
-        emergencyContactName: dto.emergencyContactName,
-      }),
-      ...(dto.emergencyContactPhone !== undefined && {
-        emergencyContactPhone: toE164(dto.emergencyContactPhone),
-      }),
+      goal: dto.goal,
+      activityLevel: dto.activityLevel,
+      medicalNotes: dto.medicalNotes,
+      notes: dto.notes,
+      emergencyContactName: dto.emergencyContactName,
+      emergencyContactPhone: patchField(dto.emergencyContactPhone, toE164),
     };
 
     const [, updated] = await this.prisma.$transaction([
