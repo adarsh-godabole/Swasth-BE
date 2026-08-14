@@ -141,3 +141,11 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Local embedded Postgres data directory
+.dev-db/
+
+# Local run logs
+.dev-db.log
+.api.log
+.studio.log

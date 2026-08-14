@@ -1,5 +1,13 @@
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
-import { DevicePlatform, OtpPurpose, User } from '@prisma/client';
+import {
+  DevicePlatform,
+  GymRole,
+  GymUser,
+  GymUserStatus,
+  MemberSource,
+  OtpPurpose,
+} from '@prisma/client';
+import { RequestGym } from 'src/common/types/authenticated-user.type';
 import { maskPhone, toE164 } from 'src/common/utils/phone.util';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { SendOtpDto } from './dto/send-otp.dto';
@@ -13,9 +21,11 @@ export interface AuthSession extends TokenPair {
     id: string;
     phone: string;
     fullName: string | null;
-    role: User['role'];
+    role: GymRole;
+    memberCode: string | null;
     onboarded: boolean;
   };
+  gym: { id: string; code: string; name: string };
 }
 
 @Injectable()
@@ -28,17 +38,26 @@ export class AuthService {
     private readonly tokens: TokensService,
   ) {}
 
-  async sendOtp(dto: SendOtpDto): Promise<{
-    phone: string;
-    expiresAt: Date;
-    devCode?: string;
-  }> {
+  async sendOtp(
+    dto: SendOtpDto,
+    gym: RequestGym,
+  ): Promise<{ phone: string; expiresAt: Date; devCode?: string }> {
     const phone = toE164(dto.phone);
-    const user = await this.prisma.user.findUnique({ where: { phone } });
+    const user = await this.prisma.user.findUnique({
+      where: { phone },
+      include: { gymUsers: { where: { gymId: gym.id } } },
+    });
 
     if (user && (!user.isActive || user.deletedAt)) {
       throw new UnauthorizedException(
         'This account has been deactivated. Contact support.',
+      );
+    }
+
+    const link = user?.gymUsers[0];
+    if (link && link.status === GymUserStatus.SUSPENDED) {
+      throw new UnauthorizedException(
+        `Your access to ${gym.name} is suspended. Please contact the gym.`,
       );
     }
 
@@ -48,7 +67,7 @@ export class AuthService {
       user?.id,
     );
 
-    this.logger.log(`OTP issued for ${maskPhone(phone)}`);
+    this.logger.log(`OTP issued for ${maskPhone(phone)} at ${gym.code}`);
     return {
       phone: maskPhone(phone),
       expiresAt,
@@ -56,9 +75,11 @@ export class AuthService {
     };
   }
 
-  /// Verifies the OTP and logs the user in, creating the account on first use.
+  /// Verifies the OTP and logs the user in at this gym. Creates the person on
+  /// first use anywhere, and links them to this gym on first use here.
   async verifyOtp(
     dto: VerifyOtpDto,
+    gym: RequestGym,
     context: SessionContext = {},
   ): Promise<AuthSession> {
     const phone = toE164(dto.phone);
@@ -79,18 +100,19 @@ export class AuthService {
           data: { phoneVerified: true, lastLoginAt: new Date() },
         })
       : await this.prisma.user.create({
-          data: {
-            phone,
-            phoneVerified: true,
-            lastLoginAt: new Date(),
-          },
+          data: { phone, phoneVerified: true, lastLoginAt: new Date() },
         });
+
+    const gymUser = await this.resolveGymUser(user.id, gym);
 
     const deviceId = dto.platform
       ? await this.registerDevice(user.id, dto)
       : undefined;
 
-    const pair = await this.tokens.issuePair(user, { ...context, deviceId });
+    const pair = await this.tokens.issuePair(user, gymUser, {
+      ...context,
+      deviceId,
+    });
 
     return {
       ...pair,
@@ -99,9 +121,11 @@ export class AuthService {
         id: user.id,
         phone: user.phone,
         fullName: user.fullName,
-        role: user.role,
-        onboarded: user.onboardedAt !== null,
+        role: gymUser.role,
+        memberCode: gymUser.memberCode,
+        onboarded: gymUser.onboardedAt !== null,
       },
+      gym: { id: gym.id, code: gym.code, name: gym.name },
     };
   }
 
@@ -116,8 +140,38 @@ export class AuthService {
     await this.tokens.revokeByToken(token);
   }
 
-  async logoutAll(userId: string): Promise<void> {
-    await this.tokens.revokeAllForUser(userId);
+  async logoutAll(userId: string, gymId: string): Promise<void> {
+    await this.tokens.revokeAllForUser(userId, gymId);
+  }
+
+  /// Someone logging into a gym's app for the first time becomes a MEMBER of
+  /// that gym straight away. They hold no paid membership yet - that is a
+  /// separate record - so at this point they can look around but not much else.
+  private async resolveGymUser(
+    userId: string,
+    gym: RequestGym,
+  ): Promise<GymUser> {
+    const existing = await this.prisma.gymUser.findUnique({
+      where: { gymId_userId: { gymId: gym.id, userId } },
+    });
+
+    if (existing) {
+      if (existing.status !== GymUserStatus.ACTIVE) {
+        throw new UnauthorizedException(
+          `Your access to ${gym.name} is not active. Please contact the gym.`,
+        );
+      }
+      return existing;
+    }
+
+    return this.prisma.gymUser.create({
+      data: {
+        gymId: gym.id,
+        userId,
+        role: GymRole.MEMBER,
+        source: MemberSource.APP_SIGNUP,
+      },
+    });
   }
 
   private async registerDevice(

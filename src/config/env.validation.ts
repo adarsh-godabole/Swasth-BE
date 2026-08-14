@@ -27,15 +27,16 @@ export const envValidationSchema = Joi.object({
   THROTTLE_TTL_SECONDS: Joi.number().default(60),
   THROTTLE_LIMIT: Joi.number().default(120),
 })
-  // A fixed dev OTP or dev-mode echo must never reach a deployed environment.
+  // A fixed dev OTP or dev-mode echo must never reach production. Staging is
+  // allowed to use it: it is a test environment, and until a real SMS provider
+  // is wired up it is the only way to log in there.
   .custom((value, helpers) => {
     if (
-      ['staging', 'production'].includes(value.NODE_ENV) &&
+      value.NODE_ENV === 'production' &&
       (value.OTP_DEV_MODE === true || value.OTP_DEV_CODE)
     ) {
       return helpers.error('any.invalid', {
-        message:
-          'OTP_DEV_MODE / OTP_DEV_CODE cannot be set outside development',
+        message: 'OTP_DEV_MODE / OTP_DEV_CODE cannot be set in production',
       });
     }
     if (value.JWT_ACCESS_SECRET === value.JWT_REFRESH_SECRET) {

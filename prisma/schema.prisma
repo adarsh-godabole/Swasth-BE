@@ -1,6 +1,9 @@
 // Swasth backend - Prisma schema
-// Foundation models only (auth + identity). Feature models get appended
-// as each feature module lands.
+//
+// Tenancy: one database, many gyms. Every gym-owned row carries gymId.
+// Identity: a person (User) is global and unique by phone; their relationship
+// with a gym - role, member code, status - lives on GymUser. The same phone can
+// therefore be a member at one gym and a trainer at another.
 
 generator client {
   provider = "prisma-client-js"
@@ -11,11 +14,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
+enum GymRole {
   MEMBER
   TRAINER
   GYM_ADMIN
-  SUPER_ADMIN
+  OWNER
+}
+
+enum GymUserStatus {
+  ACTIVE
+  SUSPENDED
+  LEFT
+}
+
+enum MemberSource {
+  APP_SIGNUP
+  FRONT_DESK
+  IMPORT
 }
 
 enum Gender {
@@ -23,6 +38,20 @@ enum Gender {
   FEMALE
   OTHER
   UNDISCLOSED
+}
+
+enum FitnessGoal {
+  WEIGHT_LOSS
+  MUSCLE_GAIN
+  GENERAL_FITNESS
+  ENDURANCE
+  REHAB
+}
+
+enum ActivityLevel {
+  BEGINNER
+  OCCASIONAL
+  REGULAR
 }
 
 enum OtpPurpose {
@@ -35,49 +64,133 @@ enum DevicePlatform {
   IOS
 }
 
-model User {
-  id           String    @id @default(uuid()) @db.Uuid
-  // E.164 format, e.g. +919876543210
-  phone        String    @unique @db.VarChar(20)
-  phoneVerified Boolean  @default(false)
-  email        String?   @unique @db.VarChar(255)
-  emailVerified Boolean  @default(false)
-  fullName     String?   @db.VarChar(120)
-  gender       Gender    @default(UNDISCLOSED)
-  dateOfBirth  DateTime? @db.Date
-  heightCm     Decimal?  @db.Decimal(5, 2)
-  weightKg     Decimal?  @db.Decimal(5, 2)
-  avatarUrl    String?   @db.VarChar(500)
-  city         String?   @db.VarChar(100)
-  role         Role      @default(MEMBER)
-  isActive     Boolean   @default(true)
-  onboardedAt  DateTime?
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  deletedAt    DateTime?
+/// A single gym. Onboarding a new gym is one row here - there is no self-serve
+/// signup; the platform admin creates it.
+model Gym {
+  id        String  @id @default(uuid()) @db.Uuid
+  /// Stable slug the mobile app is built against, e.g. "swasth-koramangala".
+  code      String  @unique @db.VarChar(60)
+  name      String  @db.VarChar(120)
+  legalName String? @db.VarChar(160)
 
+  phone String  @db.VarChar(20)
+  email String? @db.VarChar(255)
+
+  addressLine1 String?  @db.VarChar(200)
+  addressLine2 String?  @db.VarChar(200)
+  city         String?  @db.VarChar(100)
+  state        String?  @db.VarChar(100)
+  pincode      String?  @db.VarChar(12)
+  latitude     Decimal? @db.Decimal(9, 6)
+  longitude    Decimal? @db.Decimal(9, 6)
+
+  logoUrl  String @default("") @db.VarChar(500)
+  timezone String @default("Asia/Kolkata") @db.VarChar(60)
+  currency String @default("INR") @db.VarChar(3)
+
+  /// Member codes are issued as <prefix><padded counter>, e.g. SWK-0007.
+  memberCodePrefix String @default("M") @db.VarChar(10)
+  memberSeq        Int    @default(0)
+
+  isActive    Boolean   @default(true)
+  onboardedAt DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  gymUsers      GymUser[]
+  refreshTokens RefreshToken[]
+
+  @@index([isActive])
+  @@map("gyms")
+}
+
+/// A person. Global across gyms - phone is unique system-wide.
+model User {
+  id            String    @id @default(uuid()) @db.Uuid
+  /// E.164 format, e.g. +919876543210
+  phone         String    @unique @db.VarChar(20)
+  phoneVerified Boolean   @default(false)
+  email         String?   @unique @db.VarChar(255)
+  emailVerified Boolean   @default(false)
+  fullName      String?   @db.VarChar(120)
+  gender        Gender    @default(UNDISCLOSED)
+  dateOfBirth   DateTime? @db.Date
+  heightCm      Decimal?  @db.Decimal(5, 2)
+  weightKg      Decimal?  @db.Decimal(5, 2)
+  avatarUrl     String?   @db.VarChar(500)
+  city          String?   @db.VarChar(100)
+
+  /// Reserved for the Swasth team - can onboard gyms. Not a gym-level role.
+  isPlatformAdmin Boolean @default(false)
+
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  gymUsers      GymUser[]
   otpRequests   OtpRequest[]
   refreshTokens RefreshToken[]
   devices       Device[]
 
-  @@index([role])
   @@index([createdAt])
   @@map("users")
 }
 
+/// One person's relationship with one gym. This is the row that says "Rohit is
+/// an active member of Swasth Koramangala, code SWK-0007".
+model GymUser {
+  id     String @id @default(uuid()) @db.Uuid
+  gymId  String @db.Uuid
+  gym    Gym    @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role       GymRole       @default(MEMBER)
+  status     GymUserStatus @default(ACTIVE)
+  /// Human-facing id used at the front desk. Members only; null for staff.
+  memberCode String?       @db.VarChar(30)
+  source     MemberSource  @default(APP_SIGNUP)
+
+  // Gym-specific member context. Kept here rather than on User so a person can
+  // hold a different goal (and a different trainer's notes) at each gym.
+  goal          FitnessGoal?
+  activityLevel ActivityLevel?
+  medicalNotes  String?        @db.VarChar(1000)
+  notes         String?        @db.VarChar(1000)
+
+  emergencyContactName  String? @db.VarChar(120)
+  emergencyContactPhone String? @db.VarChar(20)
+
+  /// Set when the member finishes in-app onboarding.
+  onboardedAt   DateTime?
+  joinedAt      DateTime  @default(now())
+  lastVisitAt   DateTime?
+  deactivatedAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([gymId, userId])
+  @@unique([gymId, memberCode])
+  @@index([gymId, role, status])
+  @@index([gymId, joinedAt])
+  @@map("gym_users")
+}
+
 /// One row per OTP challenge. The code itself is stored hashed (argon2).
 model OtpRequest {
-  id          String     @id @default(uuid()) @db.Uuid
-  userId      String?    @db.Uuid
-  user        User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  phone       String     @db.VarChar(20)
-  codeHash    String     @db.VarChar(255)
-  purpose     OtpPurpose @default(LOGIN)
-  attempts    Int        @default(0)
-  expiresAt   DateTime
-  consumedAt  DateTime?
-  createdAt   DateTime   @default(now())
+  id         String     @id @default(uuid()) @db.Uuid
+  userId     String?    @db.Uuid
+  user       User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone      String     @db.VarChar(20)
+  codeHash   String     @db.VarChar(255)
+  purpose    OtpPurpose @default(LOGIN)
+  attempts   Int        @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime   @default(now())
 
   @@index([phone, purpose, createdAt])
   @@index([expiresAt])
@@ -85,20 +198,24 @@ model OtpRequest {
 }
 
 /// Rotating refresh tokens. Stored hashed; revoked on rotation, logout or reuse.
+/// Scoped to a gym, because a token minted for one gym's app must never be
+/// usable against another.
 model RefreshToken {
-  id         String    @id @default(uuid()) @db.Uuid
-  userId     String    @db.Uuid
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash  String    @db.VarChar(255)
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gymId     String    @db.Uuid
+  gym       Gym       @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  tokenHash String    @db.VarChar(255)
   /// Chain id shared by every token rotated from the same login session.
-  familyId   String    @db.Uuid
-  deviceId   String?   @db.Uuid
-  device     Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
-  userAgent  String?   @db.VarChar(300)
-  ipAddress  String?   @db.VarChar(64)
-  expiresAt  DateTime
-  revokedAt  DateTime?
-  createdAt  DateTime  @default(now())
+  familyId  String    @db.Uuid
+  deviceId  String?   @db.Uuid
+  device    Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  userAgent String?   @db.VarChar(300)
+  ipAddress String?   @db.VarChar(64)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
 
   @@index([userId])
   @@index([familyId])
@@ -108,15 +225,15 @@ model RefreshToken {
 
 /// Mobile device registration - used later for push notifications.
 model Device {
-  id          String         @id @default(uuid()) @db.Uuid
-  userId      String         @db.Uuid
-  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  platform    DevicePlatform
-  pushToken   String?        @db.VarChar(500)
-  appVersion  String?        @db.VarChar(30)
-  lastSeenAt  DateTime       @default(now())
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id         String         @id @default(uuid()) @db.Uuid
+  userId     String         @db.Uuid
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform   DevicePlatform
+  pushToken  String?        @db.VarChar(500)
+  appVersion String?        @db.VarChar(30)
+  lastSeenAt DateTime       @default(now())
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
 
   refreshTokens RefreshToken[]
 

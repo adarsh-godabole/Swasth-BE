@@ -1,14 +1,14 @@
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { User } from '@prisma/client';
+import { GymUser, GymUserStatus, User } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { randomUUID } from 'node:crypto';
-import { JwtConfig } from 'src/config/configuration';
 import {
   AccessTokenPayload,
   RefreshTokenPayload,
 } from 'src/common/types/authenticated-user.type';
+import { JwtConfig } from 'src/config/configuration';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 export interface TokenPair {
@@ -37,8 +37,11 @@ export class TokensService {
     return this.config.getOrThrow<JwtConfig>('jwt');
   }
 
+  /// Tokens are always minted for one gym. The role is copied from the caller's
+  /// GymUser row, so it is the role at *that* gym.
   async issuePair(
     user: User,
+    gymUser: Pick<GymUser, 'gymId' | 'role'>,
     context: SessionContext = {},
     familyId: string = randomUUID(),
   ): Promise<TokenPair> {
@@ -47,8 +50,10 @@ export class TokensService {
     const accessPayload: AccessTokenPayload = {
       sub: user.id,
       phone: user.phone,
-      role: user.role,
+      gymId: gymUser.gymId,
+      role: gymUser.role,
     };
+
     // Signed with seconds rather than the "15m" string: the same parsed value
     // then drives both the JWT expiry and the expiresIn we hand the client.
     const accessTtlSeconds = Math.floor(this.ttlToMs(accessTtl) / 1000);
@@ -63,6 +68,7 @@ export class TokensService {
     const record = await this.prisma.refreshToken.create({
       data: {
         userId: user.id,
+        gymId: gymUser.gymId,
         familyId,
         tokenHash: '',
         deviceId: context.deviceId ?? null,
@@ -75,6 +81,7 @@ export class TokensService {
     const refreshPayload: RefreshTokenPayload = {
       sub: user.id,
       jti: record.id,
+      gymId: gymUser.gymId,
       familyId,
     };
     const refreshToken = await this.jwt.signAsync(refreshPayload, {
@@ -137,6 +144,15 @@ export class TokensService {
       throw new UnauthorizedException('Account is not active');
     }
 
+    // Re-read the membership so a role change or a suspension takes effect at
+    // the next refresh rather than whenever the access token happens to expire.
+    const gymUser = await this.prisma.gymUser.findUnique({
+      where: { gymId_userId: { gymId: record.gymId, userId: record.userId } },
+    });
+    if (!gymUser || gymUser.status !== GymUserStatus.ACTIVE) {
+      throw new UnauthorizedException('Your access to this gym is not active');
+    }
+
     await this.prisma.refreshToken.update({
       where: { id: record.id },
       data: { revokedAt: new Date() },
@@ -144,6 +160,7 @@ export class TokensService {
 
     return this.issuePair(
       record.user,
+      gymUser,
       { deviceId: record.deviceId ?? undefined, ...context },
       record.familyId,
     );
@@ -172,9 +189,11 @@ export class TokensService {
     });
   }
 
-  async revokeAllForUser(userId: string): Promise<void> {
+  /// Ends every session for a person at one gym. Their sessions at other gyms
+  /// are untouched.
+  async revokeAllForUser(userId: string, gymId?: string): Promise<void> {
     await this.prisma.refreshToken.updateMany({
-      where: { userId, revokedAt: null },
+      where: { userId, revokedAt: null, ...(gymId ? { gymId } : {}) },
       data: { revokedAt: new Date() },
     });
   }

@@ -343,15 +343,28 @@ These change what gets built, so they're worth answering before we go far.
 
 ## 9. Where we are today
 
-The backend currently supports **section 2.1 only** — phone-number login,
-account creation, and the profile and onboarding questions. Everything else in
-this document is still to be built.
+The backend currently supports:
+
+- **Section 2.1** — phone-number login, account creation, profile and onboarding
+  questions.
+- **Section 2.2, Path B** — the front desk registering a walk-in, plus searching,
+  editing, suspending and reinstating members.
+- The gym itself — onboarding a gym and its owner, and each app build knowing
+  which gym it belongs to.
+
+Everything else in this document is still to be built.
+
+Decided since the first draft: **one database holds many gyms**, gyms are
+onboarded one at a time by the Swasth team rather than self-serve, a phone
+number is one person across all gyms, and each gym gets its own app build. That
+answers question 1 in section 8.
 
 A sensible build order, given the above:
 
-1. Membership plans, and admin creating a membership for a walk-in *(makes the
-   gym usable without payments)*
-2. Check-in and attendance *(the daily habit that gets the app opened)*
+1. ~~Admin registering a walk-in member~~ — **done**
+2. Membership plans and assigning one to a member *(makes the gym usable
+   without payments being wired up)*
+3. Check-in and attendance *(the daily habit that gets the app opened)*
 3. Payments and renewals
 4. Class schedule and booking
 5. Trainers, workout plans, personal training
