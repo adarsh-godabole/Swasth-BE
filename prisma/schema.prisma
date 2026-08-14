@@ -1,0 +1,126 @@
+// Swasth backend - Prisma schema
+// Foundation models only (auth + identity). Feature models get appended
+// as each feature module lands.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  MEMBER
+  TRAINER
+  GYM_ADMIN
+  SUPER_ADMIN
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  UNDISCLOSED
+}
+
+enum OtpPurpose {
+  LOGIN
+  PHONE_UPDATE
+}
+
+enum DevicePlatform {
+  ANDROID
+  IOS
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  // E.164 format, e.g. +919876543210
+  phone        String    @unique @db.VarChar(20)
+  phoneVerified Boolean  @default(false)
+  email        String?   @unique @db.VarChar(255)
+  emailVerified Boolean  @default(false)
+  fullName     String?   @db.VarChar(120)
+  gender       Gender    @default(UNDISCLOSED)
+  dateOfBirth  DateTime? @db.Date
+  heightCm     Decimal?  @db.Decimal(5, 2)
+  weightKg     Decimal?  @db.Decimal(5, 2)
+  avatarUrl    String?   @db.VarChar(500)
+  city         String?   @db.VarChar(100)
+  role         Role      @default(MEMBER)
+  isActive     Boolean   @default(true)
+  onboardedAt  DateTime?
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  otpRequests   OtpRequest[]
+  refreshTokens RefreshToken[]
+  devices       Device[]
+
+  @@index([role])
+  @@index([createdAt])
+  @@map("users")
+}
+
+/// One row per OTP challenge. The code itself is stored hashed (argon2).
+model OtpRequest {
+  id          String     @id @default(uuid()) @db.Uuid
+  userId      String?    @db.Uuid
+  user        User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone       String     @db.VarChar(20)
+  codeHash    String     @db.VarChar(255)
+  purpose     OtpPurpose @default(LOGIN)
+  attempts    Int        @default(0)
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime   @default(now())
+
+  @@index([phone, purpose, createdAt])
+  @@index([expiresAt])
+  @@map("otp_requests")
+}
+
+/// Rotating refresh tokens. Stored hashed; revoked on rotation, logout or reuse.
+model RefreshToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @db.VarChar(255)
+  /// Chain id shared by every token rotated from the same login session.
+  familyId   String    @db.Uuid
+  deviceId   String?   @db.Uuid
+  device     Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  userAgent  String?   @db.VarChar(300)
+  ipAddress  String?   @db.VarChar(64)
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+/// Mobile device registration - used later for push notifications.
+model Device {
+  id          String         @id @default(uuid()) @db.Uuid
+  userId      String         @db.Uuid
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform    DevicePlatform
+  pushToken   String?        @db.VarChar(500)
+  appVersion  String?        @db.VarChar(30)
+  lastSeenAt  DateTime       @default(now())
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  refreshTokens RefreshToken[]
+
+  @@unique([userId, pushToken])
+  @@index([userId])
+  @@map("devices")
+}
