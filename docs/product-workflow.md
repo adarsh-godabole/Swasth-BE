@@ -327,8 +327,8 @@ These change what gets built, so they're worth answering before we go far.
    decide now than to retrofit.
 2. **Check-in method** — does the front desk scan the member's phone (needs a
    scanner), or does the member scan a QR poster at the door (needs nothing)?
-3. **Payments** — in-app payments only, desk payments only, or both? Which
-   payment provider (Razorpay is the usual choice in India)?
+3. ~~**Payments**~~ — decided: **desk payments only, recorded manually.** No
+   payment gateway for now.
 4. **Are group classes part of this at all?** Some gyms are pure floor access
    with no classes. If so, a large chunk of section 2.4 disappears.
 5. **Does the gym do personal training** through the app, or is PT arranged
@@ -349,6 +349,13 @@ The backend currently supports:
   questions.
 - **Section 2.2, Path B** — the front desk registering a walk-in, plus searching,
   editing, suspending and reinstating members.
+- **Sections 2.2 and 2.7 (partly)** — membership plans, selling one at the desk,
+  renewals that stack, part payments in cash, cancellation, and the
+  "expiring soon" follow-up list. No in-app purchase and no payment gateway:
+  money is recorded by hand.
+- **Section 2.2 plans and 2.7 renewals** — the price list, selling a plan,
+  renewals that stack, part payments in cash, and the expiring-soon list. No
+  payment gateway: the desk records cash by hand.
 - The gym itself — onboarding a gym and its owner, and each app build knowing
   which gym it belongs to.
 
@@ -362,8 +369,7 @@ answers question 1 in section 8.
 A sensible build order, given the above:
 
 1. ~~Admin registering a walk-in member~~ — **done**
-2. Membership plans and assigning one to a member *(makes the gym usable
-   without payments being wired up)*
+2. ~~Membership plans and assigning one to a member~~ — **done**
 3. Check-in and attendance *(the daily habit that gets the app opened)*
 3. Payments and renewals
 4. Class schedule and booking

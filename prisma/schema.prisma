@@ -64,6 +64,26 @@ enum DevicePlatform {
   IOS
 }
 
+enum DurationUnit {
+  DAY
+  MONTH
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+  BANK_TRANSFER
+  ONLINE
+  OTHER
+}
+
+enum PaymentStatus {
+  PAID
+  PARTIAL
+  PENDING
+}
+
 /// A single gym. Onboarding a new gym is one row here - there is no self-serve
 /// signup; the platform admin creates it.
 model Gym {
@@ -100,6 +120,8 @@ model Gym {
 
   gymUsers      GymUser[]
   refreshTokens RefreshToken[]
+  plans         Plan[]
+  subscriptions Subscription[]
 
   @@index([isActive])
   @@map("gyms")
@@ -172,11 +194,93 @@ model GymUser {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  subscriptions     Subscription[] @relation("MemberSubscriptions")
+  soldSubscriptions Subscription[] @relation("SoldSubscriptions")
+
   @@unique([gymId, userId])
   @@unique([gymId, memberCode])
   @@index([gymId, role, status])
   @@index([gymId, joinedAt])
   @@map("gym_users")
+}
+
+/// Something the gym sells: "3 Months", "Annual", "Day Pass".
+model Plan {
+  id          String  @id @default(uuid()) @db.Uuid
+  gymId       String  @db.Uuid
+  gym         Gym     @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  name        String  @db.VarChar(80)
+  description String? @db.VarChar(500)
+
+  /// "3 MONTH", "1 DAY". Calendar months rather than 30-day blocks, because a
+  /// member who joins on the 15th expects to expire on the 15th.
+  durationValue Int
+  durationUnit  DurationUnit @default(MONTH)
+
+  /// Rupees, not paise. Decimal so it never picks up float error.
+  price Decimal @db.Decimal(10, 2)
+
+  /// isActive - can still be sold at the desk.
+  /// isPublic - also shown in the member app.
+  isActive  Boolean @default(true)
+  isPublic  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  archivedAt DateTime?
+
+  subscriptions Subscription[]
+
+  @@unique([gymId, name])
+  @@index([gymId, isActive, sortOrder])
+  @@map("plans")
+}
+
+/// One member's purchase of one plan.
+///
+/// There is deliberately no stored status column: ACTIVE / UPCOMING / EXPIRED
+/// are derived from startDate, endDate and cancelledAt at read time, so nothing
+/// goes stale and no nightly job is needed to flip expired rows.
+model Subscription {
+  id        String  @id @default(uuid()) @db.Uuid
+  gymId     String  @db.Uuid
+  gym       Gym     @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  gymUserId String  @db.Uuid
+  gymUser   GymUser @relation("MemberSubscriptions", fields: [gymUserId], references: [id], onDelete: Cascade)
+  planId    String? @db.Uuid
+  plan      Plan?   @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  /// Copied at purchase so history survives the plan being renamed or deleted.
+  planName      String       @db.VarChar(80)
+  durationValue Int
+  durationUnit  DurationUnit
+
+  /// price is the list price, discount what was taken off, amountPaid what
+  /// actually came in - which can be less, for an instalment.
+  price         Decimal       @db.Decimal(10, 2)
+  discount      Decimal       @default(0) @db.Decimal(10, 2)
+  amountPaid    Decimal       @default(0) @db.Decimal(10, 2)
+  paymentMethod PaymentMethod @default(CASH)
+  paymentStatus PaymentStatus @default(PAID)
+
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+
+  cancelledAt  DateTime?
+  cancelReason String?   @db.VarChar(300)
+  notes        String?   @db.VarChar(500)
+
+  /// The staff member who sold it.
+  soldById String?  @db.Uuid
+  soldBy   GymUser? @relation("SoldSubscriptions", fields: [soldById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([gymId, gymUserId, endDate])
+  @@index([gymId, endDate])
+  @@map("subscriptions")
 }
 
 /// One row per OTP challenge. The code itself is stored hashed (argon2).

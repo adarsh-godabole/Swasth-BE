@@ -193,6 +193,41 @@ Behaviour worth knowing:
 - **Deactivating revokes their sessions at this gym immediately**, and only at
   this gym.
 
+## Plans and memberships
+
+`GET /plans` is visible to members (active, public plans only); everything else
+is staff-only.
+
+```
+GET/POST/PATCH  /api/v1/plans[/:id]          what the gym sells
+POST            /api/v1/plans/:id/archive    take off sale, keep history
+POST            /api/v1/members/:id/subscriptions   sell a plan
+GET             /api/v1/members/:id/subscriptions   membership history
+GET             /api/v1/subscriptions/expiring?days=7
+POST            /api/v1/subscriptions/:id/payment   record more cash
+POST            /api/v1/subscriptions/:id/cancel
+```
+
+Design points worth knowing:
+
+- **Status is computed, never stored.** `ACTIVE / UPCOMING / EXPIRED /
+  CANCELLED` are derived from `startDate`, `endDate` and `cancelledAt` on every
+  read, so nothing goes stale and there is no nightly job to flip expired rows.
+- **Calendar months, not 30-day blocks.** A 3-month plan starting 15 Jan runs to
+  14 Apr, so the renewal starts 15 Apr with no gap and no overlap. Month-end
+  dates are clamped — 31 Jan + 1 month is 28 Feb.
+- **Renewals stack.** Selling to someone whose membership is still running
+  defaults the start date to the day after it ends. An explicitly overlapping
+  sale is refused with a `409` naming the date to use instead.
+- **Plan edits never rewrite history.** Name, price and duration are copied onto
+  the subscription at the point of sale. Plans archive rather than delete.
+- **Cash only, by design.** There is no payment gateway. The desk records
+  `amountPaid` against the amount due; anything short is `PARTIAL` with a
+  balance, topped up later via the payment route.
+- Members carry a `membership` summary on every member response, and
+  `GET /users/me` carries the same as `subscription` for the app home screen.
+  `coveredUntil` accounts for a queued renewal.
+
 ## Gyms (Swasth team)
 
 ```

@@ -74,7 +74,31 @@ async function main(): Promise<void> {
     },
   });
 
-  console.log(`Seeded gym "${gym.code}"`);
+  // A gym with no plans cannot sell anything, so give it a starting price list.
+  const plans = [
+    { name: 'Day Pass', durationValue: 1, unit: 'DAY', price: 300, sort: 0 },
+    { name: '1 Month', durationValue: 1, unit: 'MONTH', price: 1800, sort: 1 },
+    { name: '3 Months', durationValue: 3, unit: 'MONTH', price: 4500, sort: 2 },
+    { name: '6 Months', durationValue: 6, unit: 'MONTH', price: 8000, sort: 3 },
+    { name: 'Annual', durationValue: 12, unit: 'MONTH', price: 15000, sort: 4 },
+  ] as const;
+
+  for (const plan of plans) {
+    await prisma.plan.upsert({
+      where: { gymId_name: { gymId: gym.id, name: plan.name } },
+      update: {},
+      create: {
+        gymId: gym.id,
+        name: plan.name,
+        durationValue: plan.durationValue,
+        durationUnit: plan.unit,
+        price: plan.price,
+        sortOrder: plan.sort,
+      },
+    });
+  }
+
+  console.log(`Seeded gym "${gym.code}" with ${plans.length} plans`);
   console.log(`  Platform admin : ${platformAdmin.phone}`);
   console.log(`  Owner          : ${owner.phone}`);
   console.log(`  Gym admin      : ${admin.phone}`);

@@ -15,6 +15,8 @@ import { GymsModule } from './modules/gyms/gyms.module';
 import { HealthController } from './modules/health/health.controller';
 import { MembersModule } from './modules/members/members.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { PlansModule } from './modules/plans/plans.module';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { UsersModule } from './modules/users/users.module';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -40,6 +42,8 @@ import { PrismaModule } from './prisma/prisma.module';
     AuthModule,
     UsersModule,
     MembersModule,
+    PlansModule,
+    SubscriptionsModule,
     NotificationsModule,
   ],
   controllers: [HealthController],

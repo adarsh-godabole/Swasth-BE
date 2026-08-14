@@ -12,10 +12,16 @@ import {
   GymUserStatus,
   MemberSource,
   Prisma,
+  Subscription,
   User,
 } from '@prisma/client';
+import { startOfDayUtc } from 'src/common/utils/date.util';
 import { patchField } from 'src/common/utils/patch.util';
 import { toE164 } from 'src/common/utils/phone.util';
+import {
+  MembershipSummary,
+  summariseFor,
+} from '../subscriptions/subscriptions.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { TokensService } from '../auth/tokens.service';
 import { CreateMemberDto } from './dto/create-member.dto';
@@ -23,7 +29,20 @@ import { DeactivateMemberDto } from './dto/deactivate-member.dto';
 import { ListMembersDto } from './dto/list-members.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 
-type GymUserWithUser = GymUser & { user: User };
+type GymUserWithUser = GymUser & {
+  user: User;
+  /// The most recent few non-cancelled memberships.
+  subscriptions?: Subscription[];
+};
+
+/// Loads the memberships the member list needs to describe someone's standing.
+const CURRENT_SUBSCRIPTION = {
+  where: { cancelledAt: null },
+  orderBy: { endDate: 'desc' },
+  // A few, not one: summariseFor picks the membership covering today, which is
+  // not necessarily the one ending furthest out once a renewal is queued.
+  take: 5,
+} satisfies Prisma.GymUser$subscriptionsArgs;
 
 export interface MemberView {
   id: string;
@@ -48,6 +67,8 @@ export interface MemberView {
   onboarded: boolean;
   joinedAt: Date;
   lastVisitAt: Date | null;
+  /// Their current membership, or null if they have never bought one.
+  membership: MembershipSummary | null;
 }
 
 export interface PaginatedMembers {
@@ -153,7 +174,7 @@ export class MembersService {
             ? toE164(dto.emergencyContactPhone)
             : undefined,
         },
-        include: { user: true },
+        include: { user: true, subscriptions: CURRENT_SUBSCRIPTION },
       });
     });
 
@@ -162,13 +183,24 @@ export class MembersService {
   }
 
   async list(gymId: string, query: ListMembersDto): Promise<PaginatedMembers> {
-    const { search, status, source, page, limit, sortBy, sortOrder } = query;
+    const {
+      search,
+      status,
+      source,
+      membershipStatus,
+      expiringInDays,
+      page,
+      limit,
+      sortBy,
+      sortOrder,
+    } = query;
 
     const where: Prisma.GymUserWhereInput = {
       gymId,
       role: GymRole.MEMBER,
       ...(status ? { status } : {}),
       ...(source ? { source } : {}),
+      ...this.membershipFilter(membershipStatus, expiringInDays),
       ...(search
         ? {
             OR: [
@@ -200,7 +232,7 @@ export class MembersService {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.gymUser.findMany({
         where,
-        include: { user: true },
+        include: { user: true, subscriptions: CURRENT_SUBSCRIPTION },
         orderBy,
         skip: (page - 1) * limit,
         take: limit,
@@ -215,6 +247,51 @@ export class MembersService {
       limit,
       totalPages: Math.ceil(total / limit) || 1,
     };
+  }
+
+  /// Membership state is derived from subscription dates rather than stored, so
+  /// filtering by it means querying the related rows instead of a column.
+  private membershipFilter(
+    membershipStatus: ListMembersDto['membershipStatus'],
+    expiringInDays: number,
+  ): Prisma.GymUserWhereInput {
+    if (!membershipStatus) {
+      return {};
+    }
+
+    const today = startOfDayUtc();
+    const live: Prisma.SubscriptionWhereInput = {
+      cancelledAt: null,
+      startDate: { lte: today },
+      endDate: { gte: today },
+    };
+
+    switch (membershipStatus) {
+      case 'ACTIVE':
+        return { subscriptions: { some: live } };
+      case 'EXPIRING':
+        return {
+          subscriptions: {
+            some: {
+              ...live,
+              endDate: {
+                gte: today,
+                lte: new Date(today.getTime() + expiringInDays * 86_400_000),
+              },
+            },
+          },
+        };
+      case 'EXPIRED':
+        // Had one at some point, but nothing live now.
+        return {
+          AND: [
+            { subscriptions: { some: { cancelledAt: null } } },
+            { subscriptions: { none: live } },
+          ],
+        };
+      case 'NONE':
+        return { subscriptions: { none: {} } };
+    }
   }
 
   async findOne(gymId: string, memberId: string): Promise<MemberView> {
@@ -259,7 +336,7 @@ export class MembersService {
       this.prisma.gymUser.update({
         where: { id: member.id },
         data: gymUserData,
-        include: { user: true },
+        include: { user: true, subscriptions: CURRENT_SUBSCRIPTION },
       }),
     ]);
 
@@ -288,7 +365,7 @@ export class MembersService {
           ? `${member.notes ? `${member.notes}\n` : ''}[${dto.status}] ${dto.reason}`
           : member.notes,
       },
-      include: { user: true },
+      include: { user: true, subscriptions: CURRENT_SUBSCRIPTION },
     });
 
     // Kill their sessions at this gym only - they may be a member elsewhere.
@@ -310,7 +387,7 @@ export class MembersService {
     const updated = await this.prisma.gymUser.update({
       where: { id: member.id },
       data: { status: GymUserStatus.ACTIVE, deactivatedAt: null },
-      include: { user: true },
+      include: { user: true, subscriptions: CURRENT_SUBSCRIPTION },
     });
     return this.toView(updated);
   }
@@ -321,7 +398,7 @@ export class MembersService {
   ): Promise<GymUserWithUser> {
     const member = await this.prisma.gymUser.findFirst({
       where: { id: memberId, gymId, role: GymRole.MEMBER },
-      include: { user: true },
+      include: { user: true, subscriptions: CURRENT_SUBSCRIPTION },
     });
     if (!member) {
       throw new NotFoundException('Member not found');
@@ -346,7 +423,7 @@ export class MembersService {
           ? toE164(dto.emergencyContactPhone)
           : undefined,
       },
-      include: { user: true },
+      include: { user: true, subscriptions: CURRENT_SUBSCRIPTION },
     });
     this.logger.log(
       `Member ${updated.memberCode} rejoined gym ${updated.gymId}`,
@@ -398,6 +475,7 @@ export class MembersService {
       onboarded: member.onboardedAt !== null,
       joinedAt: member.joinedAt,
       lastVisitAt: member.lastVisitAt,
+      membership: summariseFor(member.subscriptions ?? []),
     };
   }
 }

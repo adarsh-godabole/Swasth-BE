@@ -1,9 +1,20 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Gender, GymUser, Prisma, User } from '@prisma/client';
+import { Gender, GymUser, Prisma, Subscription, User } from '@prisma/client';
 import { patchField } from 'src/common/utils/patch.util';
 import { toE164 } from 'src/common/utils/phone.util';
 import { PrismaService } from 'src/prisma/prisma.service';
+import {
+  MembershipSummary,
+  summariseFor,
+} from '../subscriptions/subscriptions.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+
+/// The live or most recent non-cancelled membership.
+const CURRENT_SUBSCRIPTION = {
+  where: { cancelledAt: null },
+  orderBy: { endDate: 'desc' },
+  take: 5,
+} satisfies Prisma.GymUser$subscriptionsArgs;
 
 /// What the logged-in person sees about themselves: who they are, plus who they
 /// are *at this gym*.
@@ -33,6 +44,9 @@ export interface MyProfile {
     joinedAt: Date;
     lastVisitAt: Date | null;
   };
+  /// The plan they hold right now - what the app home screen leads with.
+  /// Null means they have never bought one (a visitor).
+  subscription: MembershipSummary | null;
 }
 
 @Injectable()
@@ -42,7 +56,7 @@ export class UsersService {
   async findMe(userId: string, gymId: string): Promise<MyProfile> {
     const gymUser = await this.prisma.gymUser.findUnique({
       where: { gymId_userId: { gymId, userId } },
-      include: { user: true },
+      include: { user: true, subscriptions: CURRENT_SUBSCRIPTION },
     });
     if (!gymUser || gymUser.user.deletedAt) {
       throw new NotFoundException('User not found');
@@ -84,6 +98,7 @@ export class UsersService {
       this.prisma.gymUser.update({
         where: { gymId_userId: { gymId, userId } },
         data: gymUserData,
+        include: { subscriptions: CURRENT_SUBSCRIPTION },
       }),
     ]);
 
@@ -101,7 +116,7 @@ export class UsersService {
     const gymUser = await this.prisma.gymUser.update({
       where: { gymId_userId: { gymId, userId } },
       data: { onboardedAt: new Date() },
-      include: { user: true },
+      include: { user: true, subscriptions: CURRENT_SUBSCRIPTION },
     });
     return this.toProfile(gymUser.user, gymUser);
   }
@@ -129,7 +144,10 @@ export class UsersService {
 
   /// Prisma returns Decimal for numeric columns; the mobile client wants plain
   /// numbers.
-  private toProfile(user: User, gymUser: GymUser): MyProfile {
+  private toProfile(
+    user: User,
+    gymUser: GymUser & { subscriptions?: Subscription[] },
+  ): MyProfile {
     return {
       id: user.id,
       phone: user.phone,
@@ -156,6 +174,7 @@ export class UsersService {
         joinedAt: gymUser.joinedAt,
         lastVisitAt: gymUser.lastVisitAt,
       },
+      subscription: summariseFor(gymUser.subscriptions ?? []),
     };
   }
 }
