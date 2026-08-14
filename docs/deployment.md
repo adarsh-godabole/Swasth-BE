@@ -40,19 +40,99 @@ Keep that string handy — you need it twice.
 
 ## Step 2 — Create the schema and seed it
 
-From the project folder on your machine, run the migration and seed **against
-Neon** by putting the connection string in front of the command:
+Creates the tables in Neon and puts one gym, its owner and a front-desk admin in
+them. Run these from the project folder. Stop at the first command whose output
+doesn't match.
 
-```bash
-DATABASE_URL="<paste-neon-string>" npx prisma migrate deploy
-DATABASE_URL="<paste-neon-string>" npm run db:seed
+### 2.1 Save the connection string
+
+Create a file called `.env.neon` in the project root with one line:
+
+```
+DATABASE_URL="postgresql://swasth_owner:XXXX@ep-something-123456.ap-southeast-1.aws.neon.tech/swasth?sslmode=require"
 ```
 
-You should see the migration applied, then the three seeded logins. Your local
-`.env` is untouched — this only affects these two commands.
+Keep the quotes — Neon passwords often contain characters the shell would
+otherwise mangle. `.env.neon` is gitignored, so it will never be committed, and
+using a file keeps the password out of your shell history.
 
-> The deployed app also runs `prisma migrate deploy` on every boot, so this step
-> is really just so you can seed the gym. Migrations would apply either way.
+Two things to check in that string:
+
+- it ends with `?sslmode=require` — Neon rejects unencrypted connections;
+- the host does **not** contain `-pooler`. If it does, go back to the Neon
+  dashboard and copy the direct/unpooled string instead. Migrations are not
+  reliable through the connection pooler.
+
+### 2.2 Check the connection before changing anything
+
+```bash
+npm run neon:status
+```
+
+Expected — it reaches Neon and reports that nothing has been applied yet:
+
+```
+Using .env.neon -> postgresql://swasth_owner:****@ep-...neon.tech/swasth?sslmode=require
+Datasource "db": PostgreSQL database "swasth" ...
+1 migration found in prisma/migrations
+Following migrations have not yet been applied:
+20260814000000_init
+```
+
+The first line echoes where it is pointing, with the password masked — confirm
+it says `neon.tech` and not `localhost`. If instead you see:
+
+| Error                            | Cause                                            |
+| -------------------------------- | ------------------------------------------------ |
+| `P1001: Can't reach database`    | Wrong host, or the string was pasted incomplete   |
+| `P1000: Authentication failed`   | Wrong password — recopy it from Neon              |
+| `Cannot read ".env.neon"`        | File is missing or not in the project root        |
+
+### 2.3 Create the tables
+
+```bash
+npm run neon:migrate
+```
+
+Expected:
+
+```
+Applying migration `20260814000000_init`
+All migrations have been successfully applied.
+```
+
+### 2.4 Seed the gym
+
+```bash
+npm run neon:seed
+```
+
+Expected:
+
+```
+Seeded gym "swasth-koramangala"
+  Platform admin : +919999900001
+  Owner          : +919999900002
+  Gym admin      : +919999900003
+```
+
+Safe to run twice — it upserts, so it won't create duplicates.
+
+### 2.5 Look at what you just created
+
+```bash
+npm run neon:studio
+```
+
+Opens Prisma Studio on <http://localhost:5555>, now pointed at Neon rather than
+your local database. `gyms` should hold 1 row and `gym_users` 3. Ctrl+C to stop.
+
+> Your local `.env` and local database are untouched by all of this — every
+> `neon:*` script reads `.env.neon` instead, and that value overrides `.env`.
+
+> The deployed app also runs `prisma migrate deploy` on every boot, so 2.3 would
+> happen anyway. Doing it now means you find connection problems here, where the
+> error is readable, rather than in a Render build log.
 
 ## Step 3 — Push the code to GitHub
 
@@ -147,13 +227,23 @@ Header:     X-Gym-Code: swasth-koramangala
 
 ## Viewing the deployed data
 
-Prisma Studio works against Neon the same way it works locally:
-
 ```bash
-DATABASE_URL="<paste-neon-string>" npx prisma studio
+npm run neon:studio
 ```
 
 Neon's own dashboard also has a SQL editor and a table browser.
+
+## The neon:* scripts
+
+Each one runs an ordinary Prisma command with `.env.neon` loaded on top of the
+environment, so it hits the hosted database instead of your local one:
+
+| Command                | What it does                             |
+| ---------------------- | ----------------------------------------- |
+| `npm run neon:status`  | Connection check + which migrations remain |
+| `npm run neon:migrate` | Applies pending migrations                 |
+| `npm run neon:seed`    | Seeds the gym, owner and admin             |
+| `npm run neon:studio`  | Browses the hosted data                    |
 
 ## Redeploying
 

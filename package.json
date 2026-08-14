@@ -23,7 +23,11 @@
     "db:start": "node scripts/dev-db.mjs start",
     "db:stop": "node scripts/dev-db.mjs stop",
     "db:reset": "node scripts/dev-db.mjs reset",
-    "db:seed": "ts-node prisma/seed.ts"
+    "db:seed": "ts-node prisma/seed.ts",
+    "neon:status": "node scripts/with-env.mjs .env.neon npx prisma migrate status",
+    "neon:migrate": "node scripts/with-env.mjs .env.neon npx prisma migrate deploy",
+    "neon:seed": "node scripts/with-env.mjs .env.neon npm run db:seed",
+    "neon:studio": "node scripts/with-env.mjs .env.neon npx prisma studio"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
