@@ -48,6 +48,23 @@ export function computeEndDate(
     : addDaysUtc(start, durationValue - 1);
 }
 
+/// The calendar day it is *at the gym*, as a UTC-midnight Date suitable for a
+/// Postgres DATE column.
+///
+/// This is not the same as the UTC day. India is UTC+5:30, so a 5am visit is
+/// still the previous day in UTC - using UTC would put early-morning gym-goers
+/// on the wrong day and quietly break their streak.
+export function gymLocalDate(timeZone: string, at: Date = new Date()): Date {
+  // en-CA formats as YYYY-MM-DD, which is exactly what we need.
+  const formatted = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(at);
+  return new Date(`${formatted}T00:00:00.000Z`);
+}
+
 /// Whole days from `from` until `to`, inclusive of neither end. Expiring today
 /// gives 0.
 export function daysBetween(from: Date, to: Date): number {

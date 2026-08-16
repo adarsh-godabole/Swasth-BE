@@ -10,6 +10,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 import configuration from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
 import { AuthModule } from './modules/auth/auth.module';
+import { CheckInsModule } from './modules/check-ins/check-ins.module';
 import { GymContextMiddleware } from './modules/gyms/gym-context.middleware';
 import { GymsModule } from './modules/gyms/gyms.module';
 import { HealthController } from './modules/health/health.controller';
@@ -43,6 +44,7 @@ import { PrismaModule } from './prisma/prisma.module';
     UsersModule,
     MembersModule,
     PlansModule,
+    CheckInsModule,
     SubscriptionsModule,
     NotificationsModule,
   ],

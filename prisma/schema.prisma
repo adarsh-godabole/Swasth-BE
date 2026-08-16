@@ -84,6 +84,13 @@ enum PaymentStatus {
   PENDING
 }
 
+enum CheckInSource {
+  /// Member tapped "Check in" in the app.
+  APP
+  /// Staff recorded it for them at the desk.
+  FRONT_DESK
+}
+
 /// A single gym. Onboarding a new gym is one row here - there is no self-serve
 /// signup; the platform admin creates it.
 model Gym {
@@ -122,6 +129,7 @@ model Gym {
   refreshTokens RefreshToken[]
   plans         Plan[]
   subscriptions Subscription[]
+  checkIns      CheckIn[]
 
   @@index([isActive])
   @@map("gyms")
@@ -196,6 +204,8 @@ model GymUser {
 
   subscriptions     Subscription[] @relation("MemberSubscriptions")
   soldSubscriptions Subscription[] @relation("SoldSubscriptions")
+  checkIns          CheckIn[]      @relation("MemberCheckIns")
+  recordedCheckIns  CheckIn[]      @relation("RecordedCheckIns")
 
   @@unique([gymId, userId])
   @@unique([gymId, memberCode])
@@ -278,9 +288,47 @@ model Subscription {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  checkIns CheckIn[]
+
   @@index([gymId, gymUserId, endDate])
   @@index([gymId, endDate])
   @@map("subscriptions")
+}
+
+/// One gym visit.
+///
+/// There is no QR code and no scanner: the member taps a button in the app and
+/// confirms. That makes the record self-reported, so it is a record of intent
+/// as much as attendance - see localDate for why one per day is enforced.
+model CheckIn {
+  id        String  @id @default(uuid()) @db.Uuid
+  gymId     String  @db.Uuid
+  gym       Gym     @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  gymUserId String  @db.Uuid
+  gymUser   GymUser @relation("MemberCheckIns", fields: [gymUserId], references: [id], onDelete: Cascade)
+
+  /// Which membership the visit counted against, kept for later reporting.
+  subscriptionId String?       @db.Uuid
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  /// The calendar day **in the gym's own timezone**, not UTC. A 5am visit in
+  /// India falls on the previous UTC date, which would silently break streaks
+  /// and daily counts. The unique constraint below makes a day the unit of
+  /// attendance, so a double tap cannot inflate the numbers.
+  localDate   DateTime      @db.Date
+  checkedInAt DateTime      @default(now())
+  source      CheckInSource @default(APP)
+
+  /// Set when a staff member recorded the visit rather than the member.
+  recordedById String?  @db.Uuid
+  recordedBy   GymUser? @relation("RecordedCheckIns", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@unique([gymUserId, localDate])
+  @@index([gymId, localDate])
+  @@index([gymUserId, localDate(sort: Desc)])
+  @@map("check_ins")
 }
 
 /// One row per OTP challenge. The code itself is stored hashed (argon2).

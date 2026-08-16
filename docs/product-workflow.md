@@ -325,8 +325,8 @@ These change what gets built, so they're worth answering before we go far.
 1. **Is this one gym, or will you sell Swasth to many gyms?** Everything above
    assumes one. Multi-gym is a very different foundation and is far cheaper to
    decide now than to retrofit.
-2. **Check-in method** — does the front desk scan the member's phone (needs a
-   scanner), or does the member scan a QR poster at the door (needs nothing)?
+2. ~~**Check-in method**~~ — decided: **neither.** The member taps a button in
+   the app and confirms. No QR, no scanner, no hardware.
 3. ~~**Payments**~~ — decided: **desk payments only, recorded manually.** No
    payment gateway for now.
 4. **Are group classes part of this at all?** Some gyms are pure floor access
@@ -370,7 +370,7 @@ A sensible build order, given the above:
 
 1. ~~Admin registering a walk-in member~~ — **done**
 2. ~~Membership plans and assigning one to a member~~ — **done**
-3. Check-in and attendance *(the daily habit that gets the app opened)*
+3. ~~Check-in and attendance~~ — **done**
 3. Payments and renewals
 4. Class schedule and booking
 5. Trainers, workout plans, personal training

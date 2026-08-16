@@ -228,6 +228,33 @@ Design points worth knowing:
   `GET /users/me` carries the same as `subscription` for the app home screen.
   `coveredUntil` accounts for a queued renewal.
 
+## Check-ins
+
+```
+POST /api/v1/check-ins                    member checks themselves in
+GET  /api/v1/check-ins/me/summary         streak and visit counts
+GET  /api/v1/check-ins/me                 own history
+GET  /api/v1/check-ins?date=YYYY-MM-DD    the day's register    (staff)
+POST /api/v1/members/:id/check-ins        desk records a visit  (staff)
+GET  /api/v1/members/:id/check-ins        a member's history    (staff)
+```
+
+- **No QR and no scanner.** The member taps a button and the app asks for
+  confirmation; the confirmation is client-side only, so the record is
+  self-reported by design.
+- **A day is the unit of attendance**, enforced by a unique index on
+  `(gymUserId, localDate)`. A repeat check-in returns the first one with
+  `alreadyCheckedIn: true` rather than erroring — a double tap on a slow
+  connection is likelier than a real second visit. Concurrent taps are caught by
+  the unique constraint and resolved to the same row.
+- **Days are the gym's local days, not UTC.** India is UTC+5:30, so a 5am visit
+  falls on the previous UTC date; using UTC would quietly break streaks for
+  early risers. `gymLocalDate()` derives the day from the gym's `timezone`.
+- **An active membership is required**, with different messages for "never
+  joined" and "expired".
+- Streaks are computed, not stored. A streak survives not having visited yet
+  today, and breaks only once a whole day is missed.
+
 ## Gyms (Swasth team)
 
 ```
