@@ -33,13 +33,19 @@ export class ListMembersDto {
   source?: MemberSource;
 
   @ApiPropertyOptional({
-    enum: ['ACTIVE', 'EXPIRING', 'EXPIRED', 'NONE'],
+    enum: ['ACTIVE', 'EXPIRING', 'ACTIVE_NOT_EXPIRING', 'EXPIRED', 'NONE'],
     description:
-      'Filter by membership: ACTIVE (paid up), EXPIRING (active, ending within expiringInDays), EXPIRED (had one, lapsed), NONE (never bought one)',
+      'ACTIVE = holds a live membership, and is a SUPERSET of EXPIRING. ' +
+      'EXPIRING = active and ending within expiringInDays. ' +
+      'ACTIVE_NOT_EXPIRING = active but not expiring soon - the disjoint slice. ' +
+      'EXPIRED = has history but nothing live (includes cancelled). ' +
+      'NONE = never bought a membership. ' +
+      'These do NOT sum to the member count - use GET /members/stats instead.',
   })
   @IsOptional()
-  @IsIn(['ACTIVE', 'EXPIRING', 'EXPIRED', 'NONE'])
-  membershipStatus?: 'ACTIVE' | 'EXPIRING' | 'EXPIRED' | 'NONE';
+  @IsIn(['ACTIVE', 'EXPIRING', 'ACTIVE_NOT_EXPIRING', 'EXPIRED', 'NONE'])
+  membershipStatus?:
+    'ACTIVE' | 'EXPIRING' | 'ACTIVE_NOT_EXPIRING' | 'EXPIRED' | 'NONE';
 
   @ApiPropertyOptional({
     default: 7,

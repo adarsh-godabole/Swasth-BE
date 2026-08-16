@@ -27,6 +27,7 @@ import { TokensService } from '../auth/tokens.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { DeactivateMemberDto } from './dto/deactivate-member.dto';
 import { ListMembersDto } from './dto/list-members.dto';
+import { MemberStatsDto } from './dto/member-stats.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 
 type GymUserWithUser = GymUser & {
@@ -77,6 +78,24 @@ export interface PaginatedMembers {
   page: number;
   limit: number;
   totalPages: number;
+}
+
+export interface MemberStats {
+  totalMembers: number;
+  expiringInDays: number;
+  /// Everyone with a live membership, including those expiring soon. This is
+  /// the "active members" number - do not add it to buckets.expiringSoon.
+  activeTotal: number;
+  /// Mutually exclusive; sums exactly to totalMembers.
+  buckets: {
+    /// Active and not expiring within expiringInDays.
+    active: number;
+    expiringSoon: number;
+    /// Has membership history but nothing live - lapsed or cancelled.
+    expired: number;
+    /// Never bought anything. Usually app signups.
+    never: number;
+  };
 }
 
 @Injectable()
@@ -266,32 +285,85 @@ export class MembersService {
       endDate: { gte: today },
     };
 
+    const expiringSoon: Prisma.SubscriptionWhereInput = {
+      ...live,
+      endDate: {
+        gte: today,
+        lte: new Date(today.getTime() + expiringInDays * 86_400_000),
+      },
+    };
+
     switch (membershipStatus) {
       case 'ACTIVE':
+        // Deliberately a superset of EXPIRING: someone expiring tomorrow is
+        // still active today. Use ACTIVE_NOT_EXPIRING for the disjoint slice.
         return { subscriptions: { some: live } };
       case 'EXPIRING':
-        return {
-          subscriptions: {
-            some: {
-              ...live,
-              endDate: {
-                gte: today,
-                lte: new Date(today.getTime() + expiringInDays * 86_400_000),
-              },
-            },
-          },
-        };
-      case 'EXPIRED':
-        // Had one at some point, but nothing live now.
+        return { subscriptions: { some: expiringSoon } };
+      case 'ACTIVE_NOT_EXPIRING':
         return {
           AND: [
-            { subscriptions: { some: { cancelledAt: null } } },
+            { subscriptions: { some: live } },
+            { subscriptions: { none: expiringSoon } },
+          ],
+        };
+      case 'EXPIRED':
+        // Anything in their history, but nothing live now. Deliberately counts
+        // cancelled-only members: requiring a non-cancelled subscription here
+        // used to drop them out of every bucket, so the buckets did not sum to
+        // the member count.
+        return {
+          AND: [
+            { subscriptions: { some: {} } },
             { subscriptions: { none: live } },
           ],
         };
       case 'NONE':
         return { subscriptions: { none: {} } };
     }
+  }
+
+  /// Counts for the dashboard.
+  ///
+  /// `buckets` is a true partition - the four sum to `totalMembers` - because
+  /// summing the membershipStatus filters does not work: EXPIRING is a subset
+  /// of ACTIVE, so adding them double-counts. `activeTotal` is the figure to
+  /// show as "active members".
+  async stats(gymId: string, query: MemberStatsDto): Promise<MemberStats> {
+    const { expiringInDays, status, source } = query;
+
+    const base: Prisma.GymUserWhereInput = {
+      gymId,
+      role: GymRole.MEMBER,
+      ...(status ? { status } : {}),
+      ...(source ? { source } : {}),
+    };
+
+    const countWith = (extra: Prisma.GymUserWhereInput) =>
+      this.prisma.gymUser.count({ where: { ...base, ...extra } });
+
+    const [totalMembers, activeTotal, expiringSoon, expired, never] =
+      await this.prisma.$transaction([
+        countWith({}),
+        countWith(this.membershipFilter('ACTIVE', expiringInDays)),
+        countWith(this.membershipFilter('EXPIRING', expiringInDays)),
+        countWith(this.membershipFilter('EXPIRED', expiringInDays)),
+        countWith(this.membershipFilter('NONE', expiringInDays)),
+      ]);
+
+    return {
+      totalMembers,
+      expiringInDays,
+      activeTotal,
+      buckets: {
+        // Derived rather than queried, so it can never disagree with the two
+        // counts it sits between.
+        active: activeTotal - expiringSoon,
+        expiringSoon,
+        expired,
+        never,
+      },
+    };
   }
 
   async findOne(gymId: string, memberId: string): Promise<MemberView> {

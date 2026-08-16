@@ -227,6 +227,14 @@ Design points worth knowing:
 - Members carry a `membership` summary on every member response, and
   `GET /users/me` carries the same as `subscription` for the app home screen.
   `coveredUntil` accounts for a queued renewal.
+- **`membershipStatus` filters overlap by design.** `EXPIRING` is a subset of
+  `ACTIVE` - someone ending tomorrow is still active today - so the filter
+  totals must never be added together. `ACTIVE_NOT_EXPIRING` is the disjoint
+  slice, and **`GET /members/stats` returns counts that do partition**:
+  `buckets` (active / expiringSoon / expired / never) sums exactly to
+  `totalMembers`, alongside an `activeTotal` that includes the expiring ones.
+  `EXPIRED` counts anyone with history but nothing live, cancelled included -
+  without that, cancelled-only members belonged to no bucket at all.
 
 ## Check-ins
 

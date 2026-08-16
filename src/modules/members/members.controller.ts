@@ -23,6 +23,7 @@ import { GYM_HEADER } from '../gyms/gym-context.middleware';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { DeactivateMemberDto } from './dto/deactivate-member.dto';
 import { ListMembersDto } from './dto/list-members.dto';
+import { MemberStatsDto } from './dto/member-stats.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { MembersService } from './members.service';
 
@@ -48,6 +49,15 @@ export class MembersController {
   @ApiOperation({ summary: 'Search and list members of this gym' })
   list(@CurrentUser('gymId') gymId: string, @Query() query: ListMembersDto) {
     return this.membersService.list(gymId, query);
+  }
+
+  /// Declared before :id so "stats" is not swallowed as a member id.
+  @Get('stats')
+  @ApiOperation({
+    summary: 'Dashboard counts. buckets are disjoint and sum to totalMembers',
+  })
+  stats(@CurrentUser('gymId') gymId: string, @Query() query: MemberStatsDto) {
+    return this.membersService.stats(gymId, query);
   }
 
   @Get(':id')
