@@ -84,6 +84,26 @@ enum PaymentStatus {
   PENDING
 }
 
+/// The parts of the body a session covered. CARDIO and FULL_BODY are not
+/// muscles, but they are how members describe a day that wasn't split.
+enum MuscleGroup {
+  CHEST
+  SHOULDERS
+  BICEPS
+  TRICEPS
+  FOREARMS
+  ABS
+  TRAPS
+  LATS
+  LOWER_BACK
+  GLUTES
+  QUADS
+  HAMSTRINGS
+  CALVES
+  CARDIO
+  FULL_BODY
+}
+
 enum CheckInSource {
   /// Member tapped "Check in" in the app.
   APP
@@ -130,6 +150,7 @@ model Gym {
   plans         Plan[]
   subscriptions Subscription[]
   checkIns      CheckIn[]
+  workouts      Workout[]
 
   @@index([isActive])
   @@map("gyms")
@@ -206,6 +227,7 @@ model GymUser {
   soldSubscriptions Subscription[] @relation("SoldSubscriptions")
   checkIns          CheckIn[]      @relation("MemberCheckIns")
   recordedCheckIns  CheckIn[]      @relation("RecordedCheckIns")
+  workouts          Workout[]      @relation("MemberWorkouts")
 
   @@unique([gymId, userId])
   @@unique([gymId, memberCode])
@@ -325,10 +347,50 @@ model CheckIn {
 
   createdAt DateTime @default(now())
 
+  workout Workout?
+
   @@unique([gymUserId, localDate])
   @@index([gymId, localDate])
   @@index([gymUserId, localDate(sort: Desc)])
   @@map("check_ins")
+}
+
+/// What a member actually trained on a visit.
+///
+/// Hangs off the check-in rather than standing alone, which gives it the day
+/// rules for free: attendance is already one row per member per gym-local day,
+/// so a workout is too, and a member cannot log training for a day they were
+/// never here.
+model Workout {
+  id        String  @id @default(uuid()) @db.Uuid
+  gymId     String  @db.Uuid
+  gym       Gym     @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  gymUserId String  @db.Uuid
+  gymUser   GymUser @relation("MemberWorkouts", fields: [gymUserId], references: [id], onDelete: Cascade)
+
+  checkInId String  @unique @db.Uuid
+  checkIn   CheckIn @relation(fields: [checkInId], references: [id], onDelete: Cascade)
+
+  /// Copied from the check-in so history and tallies never need the join. It is
+  /// the gym's local day for the same reason the check-in's is.
+  localDate DateTime @db.Date
+
+  /// Free to be empty: a member who checked in and logged nothing is a real
+  /// state, not a broken row.
+  muscleGroups MuscleGroup[]
+
+  /// Mirrors the check-in instant. `endedAt` is set when the member taps
+  /// "finish" - there is no check-out, so an abandoned session simply has no
+  /// end and therefore no duration, which is honest.
+  startedAt DateTime
+  endedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([gymId, localDate])
+  @@index([gymUserId, localDate(sort: Desc)])
+  @@map("workouts")
 }
 
 /// One row per OTP challenge. The code itself is stored hashed (argon2).

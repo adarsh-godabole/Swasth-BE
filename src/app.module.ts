@@ -19,6 +19,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { PlansModule } from './modules/plans/plans.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { UsersModule } from './modules/users/users.module';
+import { WorkoutsModule } from './modules/workouts/workouts.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -45,6 +46,7 @@ import { PrismaModule } from './prisma/prisma.module';
     MembersModule,
     PlansModule,
     CheckInsModule,
+    WorkoutsModule,
     SubscriptionsModule,
     NotificationsModule,
   ],

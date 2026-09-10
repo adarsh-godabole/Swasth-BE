@@ -263,6 +263,31 @@ GET  /api/v1/members/:id/check-ins        a member's history    (staff)
 - Streaks are computed, not stored. A streak survives not having visited yet
   today, and breaks only once a whole day is missed.
 
+## Workouts
+
+```
+PUT  /api/v1/workouts/me/today            log what I'm training today
+GET  /api/v1/workouts/me                  own history
+GET  /api/v1/workouts/me/summary?days=30  which areas, how often
+GET  /api/v1/members/:id/workouts         a member's history   (staff)
+```
+
+- **A workout hangs off a check-in**, not off a date the client picks. That
+  inherits the day rules for free — one per member per gym-local day — and means
+  a member cannot log training for a day they were never here (`409`).
+- **`PUT`, not `POST`.** The app writes on every tap of the body map, so this has
+  to converge rather than accumulate. `muscleGroups` is the complete selection
+  and replaces what was stored; un-tapping is a shorter array and clearing is
+  `[]`. There is deliberately no `DELETE`.
+- **`finished` is three-state**: `true` stamps the end, `false` reopens it, and
+  omitting it leaves the stamp alone — which matters because editing muscles
+  after finishing must not silently restart the clock. The end time is the
+  server's, never the client's.
+- **Still no check-out.** A session the member never ended has no `endedAt` and
+  therefore `durationMinutes: null`, which is more honest than inferring a
+  closing time. `startedAt` mirrors the check-in, so the app's timer survives a
+  restart.
+
 ## Gyms (Swasth team)
 
 ```

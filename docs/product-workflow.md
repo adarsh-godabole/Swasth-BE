@@ -373,7 +373,9 @@ A sensible build order, given the above:
 3. ~~Check-in and attendance~~ — **done**
 3. Payments and renewals
 4. Class schedule and booking
-5. Trainers, workout plans, personal training
+5. Trainers, workout plans, personal training — note the member app can already
+   log *what they trained* themselves (muscle groups per visit, 2026-09-10);
+   what's missing is a trainer **prescribing** it, and per-exercise sets/reps
 6. Progress tracking
 7. Reports and announcements
 

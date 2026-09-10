@@ -637,6 +637,18 @@ GET  /members/:memberId/check-ins      one member's visit history
 
 `source` is `APP` (member tapped it) or `FRONT_DESK` (staff recorded it).
 
+Added 2026-09-10, alongside the member app's body map:
+
+```
+GET  /members/:memberId/workouts        which muscle groups they trained, by day
+```
+
+Self-reported by the member, one row per visit, `muscleGroups` possibly empty.
+`durationMinutes` is `null` when they never tapped "finish" — there is still no
+check-out, so that is a real state and not missing data. Useful on a member's
+profile page; there is no gym-wide roll-up yet, so don't design a dashboard tile
+around it.
+
 Things worth knowing:
 
 - **One check-in per member per day.** Recording a second returns the first with

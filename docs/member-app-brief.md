@@ -397,6 +397,79 @@ India falls on the previous UTC date, so the server computes the day in the
 gym's timezone. Render `date` as a plain date; don't convert it to the device
 timezone or you will show visits shifting a day.
 
+### Workouts — what they trained
+
+A workout hangs off a check-in, so it inherits the same day rules: one per
+member per gym-local day, and you cannot log a workout for a day the member
+never came in.
+
+```
+PUT  /workouts/me/today            log what I'm training today
+GET  /workouts/me?limit=30         my workout history
+GET  /workouts/me/summary?days=30  which areas, how often
+```
+
+`PUT /workouts/me/today` takes the **complete selection**, not a delta:
+
+```json
+{ "muscleGroups": ["CHEST", "BICEPS"], "finished": false }
+```
+
+```json
+{
+  "id": "…",
+  "memberId": "…",
+  "checkInId": "…",
+  "date": "2026-09-10T00:00:00.000Z",
+  "muscleGroups": ["CHEST", "BICEPS"],
+  "startedAt": "2026-09-10T10:27:17.590Z",
+  "endedAt": null,
+  "durationMinutes": null,
+  "updatedAt": "2026-09-10T10:27:17.618Z"
+}
+```
+
+**It is a `PUT` because the app saves on every tap of the body map.** Calling it
+repeatedly converges rather than accumulating. `muscleGroups` replaces whatever
+was stored — un-tapping a muscle is a shorter array, clearing everything is `[]`.
+Duplicates are ignored. There is no `DELETE`.
+
+**`finished` is three-state.** `true` stamps the end of the session, `false`
+reopens it, and **omitting it leaves the stamp alone** — which is what makes it
+safe to keep editing muscles after finishing without restarting the clock. The
+end time is the server's, so don't send one.
+
+**`startedAt` mirrors the check-in**, which is what the session timer should
+count from. Derive the clock from it rather than from a locally stored "started
+now", and the timer survives the app being closed or the phone rebooting.
+
+**No check-out still.** A session the member never finished has `endedAt: null`
+and `durationMinutes: null`. Show "not finished" rather than inventing a length.
+
+**`409` if there's no check-in today** — "Check in first, then log what you're
+training." The app shouldn't be able to reach this, since the screen is only
+reachable after checking in, but handle it rather than crashing.
+
+### `GET /workouts/me/summary`
+
+```json
+{
+  "days": 30,
+  "from": "2026-08-12T00:00:00.000Z",
+  "to": "2026-09-10T00:00:00.000Z",
+  "sessionsLogged": 12,
+  "minutesTrained": 640,
+  "muscleGroups": [
+    { "muscleGroup": "CHEST", "days": 5 },
+    { "muscleGroup": "LATS", "days": 4 }
+  ]
+}
+```
+
+Busiest first, and **areas never trained in the window are simply absent** —
+that gap is the useful part, so a screen that lists all fifteen with zeroes
+reads better than one that only shows what was hit.
+
 ### `GET /gyms/current`
 
 No auth, so it works on the login screen. Returns `name`, `phone`, address
@@ -438,6 +511,11 @@ type GymRole = 'MEMBER' | 'TRAINER' | 'GYM_ADMIN' | 'OWNER';
 type DurationUnit = 'DAY' | 'MONTH';
 type SubscriptionStatus = 'ACTIVE' | 'UPCOMING' | 'EXPIRED' | 'CANCELLED';
 type DevicePlatform = 'ANDROID' | 'IOS';
+
+type MuscleGroup =
+  | 'CHEST' | 'SHOULDERS' | 'BICEPS' | 'TRICEPS' | 'FOREARMS' | 'ABS'
+  | 'TRAPS' | 'LATS' | 'LOWER_BACK' | 'GLUTES' | 'QUADS' | 'HAMSTRINGS'
+  | 'CALVES' | 'CARDIO' | 'FULL_BODY';
 ```
 
 Show friendly labels ("Lose weight", not `WEIGHT_LOSS`) but send the exact
@@ -506,7 +584,10 @@ say so:
    no QR. `lastVisitAt` is now populated. Still missing: check-*out*, so there is
    no notion of who is currently inside, only who came today.
 2. **Classes, schedules, bookings.** None.
-3. **Trainers, workout plans, progress tracking, body measurements.** None.
+3. ~~**Workout tracking.**~~ **Built** — see section 4. A member can record which
+   muscle groups they trained on a visit and read back their history and a
+   30-day tally. Still none of: **trainers**, prescribed **workout plans**,
+   per-exercise sets/reps/weights, or **body measurements**.
 4. **Buying a plan in the app.** Deliberately absent — members pay cash at the
    desk. There is no payment gateway and none is planned for now.
 5. **Membership history.** A member can see their *current* membership via
