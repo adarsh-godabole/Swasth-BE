@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   DefaultValuePipe,
   Get,
@@ -30,6 +31,7 @@ import {
 } from 'src/common/types/authenticated-user.type';
 import { GYM_HEADER } from '../gyms/gym-context.middleware';
 import { CheckInsService } from './check-ins.service';
+import { CheckInByCodeDto } from './dto/check-in-by-code.dto';
 
 @ApiTags('Check-ins')
 @ApiBearerAuth()
@@ -50,6 +52,21 @@ export class CheckInsController {
     @CurrentGym() gym: RequestGym,
   ) {
     return this.checkIns.checkIn(gym, user.gymUserId, CheckInSource.APP);
+  }
+
+  /// The door QR. The member's phone camera opens the app on a deep link
+  /// carrying the code, and the app posts it here. Same rules as the button:
+  /// an active membership is required, and a second scan the same day returns
+  /// the first visit rather than erroring.
+  @Post('check-ins/qr')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Check myself in by scanning the gym QR' })
+  checkInByCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentGym() gym: RequestGym,
+    @Body() dto: CheckInByCodeDto,
+  ) {
+    return this.checkIns.checkInByCode(gym, user.gymUserId, dto.code);
   }
 
   @Get('check-ins/me/summary')

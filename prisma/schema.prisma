@@ -109,6 +109,8 @@ enum CheckInSource {
   APP
   /// Staff recorded it for them at the desk.
   FRONT_DESK
+  /// Member scanned the gym's door QR, which deep-links into the app.
+  QR
 }
 
 /// A single gym. Onboarding a new gym is one row here - there is no self-serve
@@ -138,6 +140,12 @@ model Gym {
   /// Member codes are issued as <prefix><padded counter>, e.g. SWK-0007.
   memberCodePrefix String @default("M") @db.VarChar(10)
   memberSeq        Int    @default(0)
+
+  /// What the door QR encodes. Deliberately not the gym `code`: that slug is
+  /// public and baked into the app build, whereas this one can be rotated if a
+  /// printed poster leaks without reissuing the app. Short and unambiguous so
+  /// it can be typed by hand when a camera will not cooperate.
+  checkInCode String @unique @db.VarChar(16)
 
   isActive    Boolean   @default(true)
   onboardedAt DateTime  @default(now())
@@ -319,9 +327,11 @@ model Subscription {
 
 /// One gym visit.
 ///
-/// There is no QR code and no scanner: the member taps a button in the app and
-/// confirms. That makes the record self-reported, so it is a record of intent
-/// as much as attendance - see localDate for why one per day is enforced.
+/// Recorded three ways: the member taps "Check in" and confirms, the member
+/// scans the door QR (which deep-links into the same call), or staff record it
+/// at the desk. The QR is static rather than rotating, so none of these proves
+/// presence - the record is intent as much as attendance. See localDate for
+/// why one per day is enforced.
 model CheckIn {
   id        String  @id @default(uuid()) @db.Uuid
   gymId     String  @db.Uuid

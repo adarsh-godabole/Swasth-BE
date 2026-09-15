@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { Gym, GymRole, MemberSource } from '@prisma/client';
+import { generateCheckInCode } from 'src/common/utils/check-in-code.util';
 import { toE164 } from 'src/common/utils/phone.util';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateGymDto } from './dto/create-gym.dto';
@@ -35,6 +36,7 @@ export class GymsService {
           state: dto.state,
           pincode: dto.pincode,
           memberCodePrefix: dto.memberCodePrefix ?? 'M',
+          checkInCode: generateCheckInCode(),
         },
       });
 
@@ -70,6 +72,33 @@ export class GymsService {
       where: { deletedAt: null },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  /// What the door poster encodes, for staff to display or print.
+  ///
+  /// The code is static by design: it goes on a printed sign, so it cannot
+  /// rotate. That means it proves nothing about presence - anyone who saves
+  /// the image can check in from home - which is the same trust model the
+  /// in-app button already had, not a new hole. `rotateCheckInCode` is the
+  /// answer when a poster leaks somewhere it shouldn't have.
+  async doorCode(gymId: string): Promise<{ code: string }> {
+    const gym = await this.prisma.gym.findUniqueOrThrow({
+      where: { id: gymId },
+      select: { checkInCode: true },
+    });
+    return { code: gym.checkInCode };
+  }
+
+  /// Issues a new code and invalidates the old one. Every printed poster stops
+  /// working the moment this is called, which is the point.
+  async rotateCheckInCode(gymId: string): Promise<{ code: string }> {
+    const gym = await this.prisma.gym.update({
+      where: { id: gymId },
+      data: { checkInCode: generateCheckInCode() },
+      select: { code: true, checkInCode: true },
+    });
+    this.logger.warn(`Door check-in code rotated for gym "${gym.code}"`);
+    return { code: gym.checkInCode };
   }
 
   /// The public-facing profile the mobile app shows before login.

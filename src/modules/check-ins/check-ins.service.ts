@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -19,6 +20,7 @@ import {
   daysBetween,
   gymLocalDate,
 } from 'src/common/utils/date.util';
+import { normaliseCheckInCode } from 'src/common/utils/check-in-code.util';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { deriveStatus } from '../subscriptions/subscriptions.service';
 
@@ -120,6 +122,40 @@ export class CheckInsService {
       }
       throw error;
     }
+  }
+
+  /// The door QR. The member scans a poster, their phone deep-links into the
+  /// app, and this confirms the code belongs to the gym they are standing in
+  /// before recording the visit.
+  ///
+  /// The code is checked against *this* member's gym rather than looked up
+  /// globally: a member of gym A scanning gym B's poster is refused rather than
+  /// silently checked into a gym they do not belong to.
+  async checkInByCode(
+    gym: RequestGym,
+    memberId: string,
+    rawCode: string,
+  ): Promise<CheckInView> {
+    const code = normaliseCheckInCode(rawCode);
+
+    if (!code) {
+      throw new BadRequestException(
+        "That doesn't look like a check-in code. It is 8 characters, printed under the QR at the gym.",
+      );
+    }
+
+    const match = await this.prisma.gym.findFirst({
+      where: { id: gym.id, checkInCode: code, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!match) {
+      throw new ForbiddenException(
+        'That code is not for this gym, or it has been replaced. Ask at the desk for the current one.',
+      );
+    }
+
+    return this.checkIn(gym, memberId, CheckInSource.QR);
   }
 
   /// Streaks and counts for the app home screen.

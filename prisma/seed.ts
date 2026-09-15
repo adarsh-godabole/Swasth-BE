@@ -22,6 +22,9 @@ async function main(): Promise<void> {
     update: {},
     create: {
       code: GYM_CODE,
+      // Fixed in the seed so the dev poster and the deep link stay stable
+      // across reseeds; real gyms get a random one on onboarding.
+      checkInCode: 'SWK7M29Q',
       name: 'Swasth Fitness, Koramangala',
       phone: '+918012345678',
       addressLine1: '80 Feet Road, 6th Block',
