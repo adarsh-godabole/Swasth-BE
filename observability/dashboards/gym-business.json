@@ -1,0 +1,160 @@
+{
+  "title": "Swasth — Gym business",
+  "uid": "swasth-gym-business",
+  "tags": ["swasth", "business"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": { "from": "now-90d", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Postgres",
+        "type": "datasource",
+        "query": "grafana-postgresql-datasource",
+        "current": {},
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Active memberships",
+      "description": "Paid up with time left today. Matches the headline figure on the portal's Insights page.",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS \"Active\"\nFROM subscriptions\nWHERE \"cancelledAt\" IS NULL\n  AND \"startDate\" <= CURRENT_DATE\n  AND \"endDate\" >= CURRENT_DATE;"
+        }
+      ],
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Expiring in 7 days",
+      "description": "The renewal call list. Anything here is a conversation the desk should be having this week.",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS \"Expiring\"\nFROM subscriptions\nWHERE \"cancelledAt\" IS NULL\n  AND \"endDate\" BETWEEN CURRENT_DATE AND CURRENT_DATE + 7;"
+        }
+      ],
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Collected this month",
+      "description": "Sum of amountPaid on memberships sold since the 1st. Cash taken at the desk — there is no payment gateway.",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(sum(\"amountPaid\"), 0) AS \"Collected\"\nFROM subscriptions\nWHERE \"createdAt\" >= date_trunc('month', CURRENT_DATE);"
+        }
+      ],
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" },
+      "fieldConfig": { "defaults": { "unit": "currencyINR", "decimals": 0 }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Outstanding",
+      "description": "Sold but not fully paid, on memberships that have not been cancelled. Instalments the desk is still owed.",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(sum(\"price\" - \"discount\" - \"amountPaid\"), 0) AS \"Owing\"\nFROM subscriptions\nWHERE \"cancelledAt\" IS NULL\n  AND (\"price\" - \"discount\" - \"amountPaid\") > 0;"
+        }
+      ],
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "decimals": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Check-ins per day",
+      "description": "Arrivals, split by how the visit was recorded. There is no check-out, so this is a register rather than occupancy.",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 5 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  \"localDate\"::timestamptz AS time,\n  source AS metric,\n  count(*) AS value\nFROM check_ins\nWHERE $__timeFilter(\"localDate\"::timestamptz)\nGROUP BY 1, 2\nORDER BY 1;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 70, "stacking": { "mode": "normal" }, "lineWidth": 0 } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "piechart",
+      "title": "Plan mix",
+      "description": "What members actually buy, all time. planName is copied onto each sale, so renaming a plan does not rewrite history.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \"planName\" AS metric, count(*) AS value\nFROM subscriptions\nGROUP BY 1\nORDER BY 2 DESC;"
+        }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "values": ["value"] } }
+    },
+    {
+      "type": "timeseries",
+      "title": "New memberships sold per week",
+      "description": "Sales, not renewals-adjusted revenue. A renewal counts as a sale here because it is one.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  date_trunc('week', \"createdAt\") AS time,\n  count(*) AS \"Sold\"\nFROM subscriptions\nWHERE $__timeFilter(\"createdAt\")\nGROUP BY 1\nORDER BY 1;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 0 } },
+        "overrides": []
+      }
+    }
+  ]
+}

@@ -26,6 +26,18 @@ export const envValidationSchema = Joi.object({
 
   THROTTLE_TTL_SECONDS: Joi.number().default(60),
   THROTTLE_LIMIT: Joi.number().default(120),
+
+  // Telemetry. Everything here is optional: with no endpoint the exporters
+  // never start, so a missing credential leaves the API running rather than
+  // refusing to boot. Read by the OpenTelemetry SDK directly, which is why the
+  // names are the OTel spec ones rather than ours.
+  OTEL_EXPORTER_OTLP_ENDPOINT: Joi.string().uri().allow('').optional(),
+  OTEL_EXPORTER_OTLP_HEADERS: Joi.string().allow('').optional(),
+  OTEL_EXPORTER_OTLP_PROTOCOL: Joi.string()
+    .valid('http/protobuf', 'http/json')
+    .default('http/protobuf'),
+  OTEL_SERVICE_NAME: Joi.string().default('swasth-api'),
+  OTEL_DIAG_LOG: Joi.boolean().default(false),
 })
   // A fixed dev OTP or dev-mode echo must never reach production. Staging is
   // allowed to use it: it is a test environment, and until a real SMS provider

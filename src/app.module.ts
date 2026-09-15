@@ -21,6 +21,7 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
 import { UsersModule } from './modules/users/users.module';
 import { WorkoutsModule } from './modules/workouts/workouts.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { TelemetryModule } from './telemetry/telemetry.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { PrismaModule } from './prisma/prisma.module';
       ],
     }),
     PrismaModule,
+    TelemetryModule,
     GymsModule,
     AuthModule,
     UsersModule,

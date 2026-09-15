@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Request, Response } from 'express';
+import { recordExceptionOnSpan } from 'src/telemetry/otel-logger.service';
 
 interface ErrorBody {
   success: false;
@@ -51,6 +52,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      // Marks the request's span as failed, so the error is visible on the
+      // trace in Grafana rather than only in the log stream.
+      recordExceptionOnSpan(exception);
       this.logger.error(
         `${request.method} ${request.url} -> ${status}`,
         exception instanceof Error ? exception.stack : String(exception),
